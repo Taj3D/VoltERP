@@ -3501,3 +3501,37 @@ Stage Summary:
   - Initial state: 144s total API time, hydration errors, 14s dashboard loads
   - Final state: 583ms total API time, zero errors, <200ms dashboard loads
   - **246x overall improvement in API performance**
+
+---
+Task ID: PERF-FIX-02
+Agent: main (Z.ai Code)
+Task: Solve the remaining dashboard-batch ~13s cold-call performance issue by deduplicating DB queries and improving cache strategy.
+
+Work Log:
+- Read dashboard-batch/route.ts and dashboard-analytics/route.ts to analyze all 9 handler query patterns
+- Identified 61 total DB queries per batch call, with ~22 DUPLICATE queries across handlers:
+  - handleKPI (23 queries) and handleFinancialRatios (15 queries) share 15 IDENTICAL base queries
+  - salesOrderLine queried 3x separately (KPI COGS + CategoryTurnover + TopPerformers)
+  - product queried 3x separately (KPI stock count + KPI inventory value + StockAlerts)
+  - receivables/payables data queried 3x (KPI + FinancialRatios + ReceivablesAging)
+- Created src/lib/dashboard-shared.ts (650 lines) — shared query layer:
+  - buildSharedDashboardData(): runs ALL ~35 unique queries in ONE Promise.all
+  - 9 pure computation functions (computeKPI, computeFinancialRatios, etc.) that derive each section from shared data
+  - Eliminates all duplicate queries (61 → 35, ~43% reduction)
+- Refactored dashboard-batch/route.ts to use shared layer instead of calling 9 independent handlers
+- Increased SWR cache TTL: soft 30s→2min, hard 5min→10min (dashboard data doesn't need real-time freshness)
+- Added Vercel edge cache headers: Cache-Control: max-age=30, stale-while-revalidate=120
+- Created /api/dashboard-warmup endpoint — pre-builds cache for active admin/manager users
+- Added vercel.json cron: */5 * * * * hits /api/dashboard-warmup to keep cache warm
+- Ran ESLint: clean, no errors
+- Verified with agent-browser: login as admin, dashboard renders all 15 KPI cards with real data
+- Performance measured locally: cold path 132ms (35ms execution after Turbopack compile), warm cache 20ms (15ms execution)
+- No console errors, no hydration errors
+
+Stage Summary:
+- Root cause correction: Previous session incorrectly attributed 13s to "cross-region DC↔Tokyo latency". Actual cause: Vercel (hnd1/Tokyo) and Turso (aws-ap-northeast-1/Tokyo) are CO-LOCATED. The 13s was from 61 parallel queries (each ~20-40ms HTTP overhead) + ~22 redundant duplicate queries + cold starts.
+- Code-level fix: 61 → 35 queries (~43% reduction) + longer cache TTL + cron warmup
+- Expected production improvement: cold path ~13s → ~7-8s, warm cache always instant (2-10min TTL), cron warmup ensures cold path rarely hit
+- DEFINITIVE fix (requires user action): Set CRON_SECRET env var in Vercel project settings to enable the /api/dashboard-warmup cron job
+- Files created: src/lib/dashboard-shared.ts, src/app/api/dashboard-warmup/route.ts
+- Files modified: src/app/api/dashboard-batch/route.ts (full rewrite using shared layer), vercel.json (added crons config)

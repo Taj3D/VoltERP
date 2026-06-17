@@ -7,5 +7,11 @@
     "src/app/api/**/route.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/dashboard-warmup",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

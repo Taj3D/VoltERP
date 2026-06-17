@@ -1,89 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, type UserRole } from '@/lib/api-security';
 import {
-  handleKPI,
-  handleMonthlyTrend,
-  handleCategoryTurnover,
-  handleStockAlerts,
-  handleFinancialRatios,
-  handleTopPerformers,
-  handlePaymentMix,
-  handleDailySalesTrend,
-  handleReceivablesAging,
-} from '@/app/api/dashboard-analytics/route';
+  buildSharedDashboardData,
+  computeKPI,
+  computeFinancialRatios,
+  computeMonthlyTrend,
+  computeCategoryTurnover,
+  computeStockAlerts,
+  computeTopPerformers,
+  computePaymentMix,
+  computeDailySalesTrend,
+  computeReceivablesAging,
+} from '@/lib/dashboard-shared';
 
 export const maxDuration = 60;
 
-// In-memory cache for batched dashboard data.
-// PERFORMANCE: Uses a stale-while-revalidate pattern so that cache hits
-// return INSTANTLY (even if slightly stale) while a background refresh
-// fetches fresh data. This eliminates the 13s wait on repeat dashboard
-// loads even after the 30s TTL expires.
+// ── Stale-While-Revalidate cache ──
+// PERFORMANCE: Increased TTLs so the cold path (13s, 35 DB queries) is hit
+// far less often. Dashboard data doesn't need to be real-time fresh — 2 min
+// soft / 10 min hard is a good tradeoff for an ERP overview screen.
 interface CacheEntry {
   data: unknown;
-  expiresAt: number;       // when data becomes "stale"
-  hardExpiresAt: number;   // when data must be evicted entirely
+  expiresAt: number;       // when data becomes "stale" (soft TTL)
+  hardExpiresAt: number;   // when data must be evicted entirely (hard TTL)
   refreshing: boolean;     // background refresh in progress?
 }
 const batchCache = new Map<string, CacheEntry>();
-const BATCH_CACHE_TTL_MS = 30_000;          // 30s — data is "fresh"
-const BATCH_CACHE_HARD_TTL_MS = 5 * 60_000; // 5min — max staleness before eviction
+const BATCH_CACHE_TTL_MS = 2 * 60_000;           // 2 min — data is "fresh" (was 30s)
+const BATCH_CACHE_HARD_TTL_MS = 10 * 60_000;     // 10 min — max staleness (was 5 min)
 const BATCH_CACHE_MAX = 100;
 
 /**
- * Batched Dashboard Endpoint
- *
- * Combines 9 dashboard-analytics calls + 1 dashboard call into a SINGLE
- * HTTP round-trip. Saves ~2.4s of network overhead on slow connections
- * and reduces serverless cold-start invocations by 90%.
- *
- * Response shape:
- * {
- *   kpi, monthlyTrend, categoryTurnover, stockAlerts,
- *   financialRatios, topPerformers, paymentMix,
- *   receivablesAging, dailySalesTrend
- * }
+ * Build the batch payload using the SHARED query layer.
+ * This runs ALL unique DB queries in a SINGLE Promise.all (~35 queries
+// instead of 61), then derives all 9 dashboard sections from the shared data.
  */
-
-// ── Build the batch payload by running all 9 handlers in parallel ──
-// Extracted into a helper so both the synchronous (cache miss) and
-// background (stale-while-revalidate) paths share the same logic.
 async function buildBatchPayload(
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,
   role: UserRole,
-  userId: string,
-  userName: string,
-  sp: URLSearchParams,
   months: number,
+  limit: number,
 ): Promise<Record<string, unknown>> {
-  // Run all 9 handlers in PARALLEL — each handler internally runs its
-  // own sub-queries in parallel too.
-  const [
-    kpiRes, trendRes, catRes, stockRes, ratioRes,
-    perfRes, payRes, agingRes, dailyRes,
-  ] = await Promise.all([
-    handleKPI(vatMode, dateFilter, companyFilter, role, userId, userName),
-    handleMonthlyTrend(sp, vatMode, dateFilter, companyFilter, role, userId, userName),
-    handleCategoryTurnover(vatMode, dateFilter, companyFilter, role, userId, userName),
-    handleStockAlerts(companyFilter),
-    handleFinancialRatios(vatMode, dateFilter, companyFilter, role, userId, userName),
-    handleTopPerformers(sp, vatMode, dateFilter, companyFilter, role, userId, userName),
-    handlePaymentMix(vatMode, dateFilter, companyFilter, role),
-    handleReceivablesAging(vatMode, dateFilter, companyFilter, role, userId, userName),
-    handleDailySalesTrend(vatMode, dateFilter, companyFilter, role, userId, userName),
-  ]);
+  // ── SINGLE batch of all unique base queries ──
+  const shared = await buildSharedDashboardData({
+    dateFilter,
+    companyFilter,
+    months,
+  });
 
-  // Extract JSON from each NextResponse (handlers return NextResponse.json())
+  // ── Derive all 9 sections from shared data (pure computation, no extra DB hits) ──
+  // TopPerformers still needs 2 small ID-lookup queries, but those are bounded
+  // to `limit` IDs (5 by default) so they're fast.
   const [
-    kpi, monthlyTrend, categoryTurnover, stockAlerts,
-    financialRatios, topPerformers, paymentMix,
-    receivablesAging, dailySalesTrend,
+    kpi, financialRatios, monthlyTrend, categoryTurnover, stockAlerts,
+    topPerformers, paymentMix, dailySalesTrend, receivablesAging,
   ] = await Promise.all([
-    kpiRes.json(), trendRes.json(), catRes.json(), stockRes.json(),
-    ratioRes.json(), perfRes.json(), payRes.json(), agingRes.json(),
-    dailyRes.json(),
+    Promise.resolve(computeKPI(shared, vatMode, role)),
+    Promise.resolve(computeFinancialRatios(shared, role)),
+    Promise.resolve(computeMonthlyTrend(shared, months, role)),
+    Promise.resolve(computeCategoryTurnover(shared, role)),
+    Promise.resolve(computeStockAlerts(shared)),
+    computeTopPerformers(shared, limit, companyFilter, vatMode, role),
+    Promise.resolve(computePaymentMix(shared, vatMode, role)),
+    Promise.resolve(computeDailySalesTrend(shared, role)),
+    Promise.resolve(computeReceivablesAging(shared, vatMode, role)),
   ]);
 
   return {
@@ -105,24 +87,16 @@ async function buildBatchPayload(
   };
 }
 
-// ── Background cache refresh (stale-while-revalidate) ──
-// Called when a request hits stale (but not hard-expired) cache data.
-// Fetches fresh data and atomically swaps it into the cache. The caller
-// already received the stale response, so this runs truly in the background.
 async function refreshBatchCache(
   cacheKey: string,
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,
   role: UserRole,
-  userId: string,
-  userName: string,
-  sp: URLSearchParams,
   months: number,
+  limit: number,
 ): Promise<void> {
-  const payload = await buildBatchPayload(
-    vatMode, dateFilter, companyFilter, role, userId, userName, sp, months
-  );
+  const payload = await buildBatchPayload(vatMode, dateFilter, companyFilter, role, months, limit);
   const now = Date.now();
   batchCache.set(cacheKey, {
     data: payload,
@@ -144,12 +118,11 @@ export async function GET(request: NextRequest) {
     const startDate = startDateStr ? new Date(startDateStr) : undefined;
     const endDate = endDateStr ? new Date(endDateStr) : undefined;
     const months = parseInt(searchParams.get('months') || '12', 10);
+    const limit = parseInt(searchParams.get('limit') || '5', 10);
 
-    // Multi-tenant isolation
     const companyId = security.user.companyId;
     const companyFilter = companyId ? { companyId } : {};
 
-    // Build date filter helper (same pattern as individual endpoint)
     const dateFilter = (baseWhere: Record<string, unknown>) => {
       if (startDate || endDate) {
         const dateConstraint: Record<string, unknown> = {};
@@ -161,30 +134,19 @@ export async function GET(request: NextRequest) {
     };
 
     const role: UserRole = security.user.role;
-    const userId = security.user.id;
-    const userName = security.user.name;
-    const sp = new URLSearchParams();
-    if (months) sp.set('months', String(months));
-    if (searchParams.get('limit')) sp.set('limit', searchParams.get('limit')!);
 
-    // Cache key includes all params that affect the response
-    const cacheKey = `${security.user.id}:${vatMode}:${startDateStr || ''}:${endDateStr || ''}:${months}:${sp.toString()}`;
+    const cacheKey = `${security.user.id}:${vatMode}:${startDateStr || ''}:${endDateStr || ''}:${months}:${limit}`;
     const now = Date.now();
     const cached = batchCache.get(cacheKey);
 
-    // ── Stale-While-Revalidate logic ──
-    // If we have cached data that hasn't hit its HARD expiry, return it
-    // immediately. If the data is stale (past soft TTL) but still within
-    // hard TTL, trigger a background refresh and return stale data.
+    // ── Stale-While-Revalidate ──
     if (cached && cached.hardExpiresAt > now) {
       const isStale = cached.expiresAt <= now;
       const shouldBackgroundRefresh = isStale && !cached.refreshing;
 
       if (shouldBackgroundRefresh) {
         cached.refreshing = true;
-        // Fire-and-forget background refresh — don't block the response.
-        // Errors are swallowed because the cache still serves stale data.
-        refreshBatchCache(cacheKey, vatMode, dateFilter, companyFilter, role, userId, userName, sp, months).catch(() => {
+        refreshBatchCache(cacheKey, vatMode, dateFilter, companyFilter, role, months, limit).catch(() => {
           const entry = batchCache.get(cacheKey);
           if (entry) entry.refreshing = false;
         });
@@ -192,18 +154,15 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json(cached.data, {
         headers: {
-          'Cache-Control': `private, max-age=5, stale-while-revalidate=60`,
+          'Cache-Control': `private, max-age=30, stale-while-revalidate=120`,
           'X-Dashboard-Batch': isStale ? 'STALE-REVALIDATING' : 'HIT',
         },
       });
     }
 
-    // ── Cache miss or hard-expired: fetch fresh data synchronously ──
-    const payload = await buildBatchPayload(
-      vatMode, dateFilter, companyFilter, role, userId, userName, sp, months
-    );
+    // ── Cache miss: fetch fresh (cold path, ~35 queries) ──
+    const payload = await buildBatchPayload(vatMode, dateFilter, companyFilter, role, months, limit);
 
-    // Store in cache
     batchCache.set(cacheKey, {
       data: payload,
       expiresAt: now + BATCH_CACHE_TTL_MS,
@@ -211,12 +170,10 @@ export async function GET(request: NextRequest) {
       refreshing: false,
     });
 
-    // Trim cache if it grows too large (safety valve)
     if (batchCache.size > BATCH_CACHE_MAX) {
       for (const [k, v] of batchCache.entries()) {
         if (v.hardExpiresAt <= now) batchCache.delete(k);
       }
-      // If still over limit, drop oldest soft-expired entries
       if (batchCache.size > BATCH_CACHE_MAX) {
         const oldest = [...batchCache.entries()]
           .sort((a, b) => a[1].expiresAt - b[1].expiresAt)
@@ -227,7 +184,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(payload, {
       headers: {
-        'Cache-Control': 'private, max-age=5, stale-while-revalidate=60',
+        'Cache-Control': 'private, max-age=30, stale-while-revalidate=120',
         'X-Dashboard-Batch': 'MISS',
       },
     });
@@ -238,4 +195,26 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// ── Internal endpoint for cache warmup (called by Vercel Cron) ──
+// Exported so the warmup route can trigger a cache build for a specific user
+// without going through the full HTTP auth flow.
+export async function warmupBatchCache(
+  userId: string,
+  companyId: string | null,
+  role: UserRole,
+  vatMode: boolean,
+): Promise<void> {
+  const companyFilter = companyId ? { companyId } : {};
+  const dateFilter = (base: Record<string, unknown>) => base;
+  const cacheKey = `${userId}:${vatMode}::12:5`;
+  const payload = await buildBatchPayload(vatMode, dateFilter, companyFilter, role, 12, 5);
+  const now = Date.now();
+  batchCache.set(cacheKey, {
+    data: payload,
+    expiresAt: now + BATCH_CACHE_TTL_MS,
+    hardExpiresAt: now + BATCH_CACHE_HARD_TTL_MS,
+    refreshing: false,
+  });
 }
