@@ -20,6 +20,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { ROLES, ROLE_COLORS, ROLE_LABELS, type Role } from "@/lib/constants";
 import { toLatinDigits } from "@/lib/number-format";
 import { deduplicatedFetch, getCsrfToken } from "@/lib/api-client";
+import { VersionBadge } from "@/components/erp/version-badge";
 
 // ────────────────────────────────────────────────────────────
 // TYPES
@@ -530,6 +531,11 @@ export default function AppHeader({
               <span className="text-xs">⌘</span>K
             </kbd>
           </Button>
+
+          {/* Version Badge (v3.0+) — shows current release version */}
+          <div className="hidden md:block">
+            <VersionBadge />
+          </div>
 
           {/* Day/Night Toggle */}
           <Button

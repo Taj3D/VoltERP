@@ -190,11 +190,6 @@ async function loadRuntimeCache(): Promise<void> {
 
   runtimeCacheLoadPromise = (async () => {
     try {
-      // Check if FeatureFlag table exists
-      if (!db || typeof (db as any).featureFlag === 'undefined') {
-        runtimeCacheLoaded = true;
-        return;
-      }
       const rows = await (db as any).featureFlag.findMany({
         where: { isEnabled: true },
         select: { key: true },

@@ -9,7 +9,7 @@ import {
   Database, Zap, Trash, RotateCcw, Info, Code,
   Image as ImageIcon, Phone, Globe, Receipt, StickyNote,
   HardDrive, Activity, Server, Cpu, MemoryStick, Clock,
-  ChevronDown, Star, Copy,
+  ChevronDown, Star, Copy, Flag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { FeatureFlagManager } from "@/components/erp/feature-flag-manager";
 import { useToast } from "@/hooks/use-toast";
 import {
   exportToPDF, exportToCSV, importFromCSV,
@@ -2947,6 +2948,9 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
           <TabsTrigger value="performance" className="flex items-center gap-1.5 text-xs sm:text-sm whitespace-nowrap flex-shrink-0">
             <Gauge className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Performance</span> & Cache
           </TabsTrigger>
+          <TabsTrigger value="flags" className="flex items-center gap-1.5 text-xs sm:text-sm whitespace-nowrap flex-shrink-0">
+            <Flag className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Feature</span> Flags
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="company">
@@ -2967,6 +2971,10 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
 
         <TabsContent value="performance">
           <PerformanceCacheTab isVatAuditor={isVatAuditor} userRole={userRole} />
+        </TabsContent>
+
+        <TabsContent value="flags">
+          <FeatureFlagManager />
         </TabsContent>
       </Tabs>
     </div>

@@ -36,7 +36,6 @@ export function computeChecksum(sql: string): string {
  */
 export async function isMigrationApplied(version: string): Promise<boolean> {
   try {
-    if (!db || typeof (db as any).schemaMigration === 'undefined') return false;
     const count = await (db as any).schemaMigration.count({
       where: { version, success: true },
     });
@@ -51,7 +50,6 @@ export async function isMigrationApplied(version: string): Promise<boolean> {
  */
 export async function getAppliedMigrations(): Promise<MigrationRecord[]> {
   try {
-    if (!db || typeof (db as any).schemaMigration === 'undefined') return [];
     return await (db as any).schemaMigration.findMany({
       orderBy: { appliedAt: 'asc' },
     });
@@ -74,7 +72,6 @@ export async function recordMigration(params: {
   notes?: string;
 }): Promise<void> {
   try {
-    if (!db || typeof (db as any).schemaMigration === 'undefined') return;
     await (db as any).schemaMigration.upsert({
       where: { version: params.version },
       create: {
