@@ -4,13 +4,14 @@
 // Thin wrapper with dynamic import (SSR disabled) to prevent
 // OOM from the 336K SPA component during server-side rendering.
 //
-// PERFORMANCE: The root layout.tsx injects an instant HTML boot
-// screen that displays before any JS loads. This component
-// removes that boot screen as soon as React mounts, then shows
-// its own loading fallback while the main app chunk downloads.
+// PERFORMANCE: The root layout.tsx renders a <BootScreen /> Client
+// Component that shows an instant loading screen via SSR before
+// any JS loads. That component removes itself via its own
+// useEffect once React mounts, so this page no longer needs to
+// touch the boot screen DOM directly (avoids conflicts with
+// React's ownership of the BootScreen node).
 // ============================================================
 
-import { useEffect } from "react";
 import dynamic from "next/dynamic";
 
 const ElectronicsMartApp = dynamic(
@@ -50,22 +51,5 @@ const ElectronicsMartApp = dynamic(
 );
 
 export default function Page() {
-  // Remove the instant boot screen as soon as React mounts
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.__removeBootScreen) {
-      window.__removeBootScreen();
-    } else {
-      // Fallback: directly remove the element
-      const el = document.getElementById("boot-screen");
-      if (el) {
-        el.style.transition = "opacity 0.3s ease";
-        el.style.opacity = "0";
-        setTimeout(() => {
-          if (el && el.parentNode) el.parentNode.removeChild(el);
-        }, 300);
-      }
-    }
-  }, []);
-
   return <ElectronicsMartApp />;
 }
