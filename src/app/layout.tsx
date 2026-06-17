@@ -30,12 +30,13 @@ export const metadata: Metadata = {
 };
 
 // ============================================================
-// INSTANT BOOT SCREEN
-// Pure inline HTML+CSS shown the moment the HTML document arrives.
-// Does NOT wait for JS/CSS bundles to download.
-// Removed automatically once React hydrates and replaces #boot-screen.
-// Critical for slow mobile connections (Bangladesh) where the
-// 900KB+ JS bundle can take 30-60s to download from Vercel's HKG edge.
+// SLOW CONNECTION WARNING + PROGRESS BOOT SCREEN
+// Enhanced boot screen that:
+// 1. Shows instantly (inline HTML+CSS, no external deps)
+// 2. Shows "Taking longer than expected..." after 10s on slow connections
+// 3. Shows "Connection very slow" after 20s with retry button
+// 4. Shows a progress percentage based on JS resource loading
+// 5. Has a <noscript> fallback for JS-disabled browsers
 // ============================================================
 const BOOT_SCREEN_HTML = `
 <div id="boot-screen" aria-busy="true" aria-live="polite">
@@ -52,8 +53,12 @@ const BOOT_SCREEN_HTML = `
     <div class="boot-spinner" role="progressbar" aria-label="Loading">
       <div class="boot-spinner-bar"></div>
     </div>
-    <p class="boot-loading-text">Loading... Please wait</p>
-    <p class="boot-version">v2.1 &middot; Secured</p>
+    <p class="boot-loading-text" id="boot-loading-text">Loading... Please wait</p>
+    <p class="boot-progress-text" id="boot-progress-text"></p>
+    <p class="boot-version">v3.0.0 &middot; Secured</p>
+    <button class="boot-retry-btn" id="boot-retry-btn" style="display:none;" onclick="location.reload()">
+      Retry Loading
+    </button>
   </div>
   <style>
     #boot-screen {
@@ -117,12 +122,33 @@ const BOOT_SCREEN_HTML = `
       margin: 0 0 0.5rem;
       font-weight: 500;
     }
+    .boot-progress-text {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin: 0 0 0.5rem;
+      min-height: 1em;
+    }
     .boot-version {
       font-size: 0.6875rem;
       color: #64748b;
       margin: 0;
       letter-spacing: 0.05em;
     }
+    .boot-retry-btn {
+      margin-top: 1rem;
+      padding: 0.5rem 1.5rem;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .boot-retry-btn:hover { background: #1d4ed8; }
+    .boot-warn { color: #fbbf24 !important; }
+    .boot-error { color: #f87171 !important; }
     @keyframes boot-slide {
       0% { transform: translateX(-100%); }
       100% { transform: translateX(350%); }
@@ -140,28 +166,80 @@ const BOOT_SCREEN_HTML = `
       .boot-spinner-bar { width: 100%; }
     }
   </style>
-</div>
-<script id="boot-screen-remover">
-  // Hide boot screen as soon as React starts rendering
-  (function() {
-    function removeBootScreen() {
-      var el = document.getElementById('boot-screen');
-      if (el) {
-        el.style.transition = 'opacity 0.3s ease';
-        el.style.opacity = '0';
-        setTimeout(function() {
-          if (el && el.parentNode) el.parentNode.removeChild(el);
-        }, 300);
+  <script id="boot-screen-progress">
+    (function() {
+      var bootStart = Date.now();
+      var loadingText = document.getElementById('boot-loading-text');
+      var progressText = document.getElementById('boot-progress-text');
+      var retryBtn = document.getElementById('boot-retry-btn');
+
+      // Track resource loading progress
+      var totalResources = 0;
+      var loadedResources = 0;
+      if (window.PerformanceObserver) {
+        try {
+          var obs = new PerformanceObserver(function(list) {
+            var entries = list.getEntries();
+            for (var i = 0; i < entries.length; i++) {
+              totalResources++;
+              if (entries[i].transferSize > 0 || entries[i].decodedBodySize > 0) {
+                loadedResources++;
+              }
+            }
+            if (progressText && totalResources > 0) {
+              var pct = Math.round((loadedResources / totalResources) * 100);
+              progressText.textContent = pct + '% loaded';
+            }
+          });
+          obs.observe({ type: 'resource', buffer: true });
+        } catch(e) {}
       }
-    }
-    // Try to remove on various hydration events
-    window.addEventListener('load', function() {
-      setTimeout(removeBootScreen, 100);
-    });
-    // Also expose for explicit removal
-    window.__removeBootScreen = removeBootScreen;
-  })();
-</script>
+
+      // Slow connection warnings
+      setTimeout(function() {
+        if (document.getElementById('boot-screen')) {
+          if (loadingText) {
+            loadingText.textContent = 'Still loading... (slow connection)';
+            loadingText.className = 'boot-loading-text boot-warn';
+          }
+        }
+      }, 10000);
+
+      setTimeout(function() {
+        if (document.getElementById('boot-screen')) {
+          if (loadingText) {
+            loadingText.textContent = 'Connection is very slow. Check your internet.';
+            loadingText.className = 'boot-loading-text boot-error';
+          }
+          if (retryBtn) retryBtn.style.display = 'inline-block';
+        }
+      }, 20000);
+
+      function removeBootScreen() {
+        var el = document.getElementById('boot-screen');
+        if (el) {
+          el.style.transition = 'opacity 0.3s ease';
+          el.style.opacity = '0';
+          setTimeout(function() {
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+          }, 300);
+        }
+      }
+      window.addEventListener('load', function() {
+        setTimeout(removeBootScreen, 100);
+      });
+      window.__removeBootScreen = removeBootScreen;
+    })();
+  </script>
+</div>
+<noscript>
+  <div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0a1628;color:#e2e8f0;font-family:sans-serif;text-align:center;padding:2rem;z-index:99999;">
+    <div>
+      <h1 style="font-size:1.5rem;margin-bottom:1rem;">JavaScript Required</h1>
+      <p style="color:#94a3b8;">Please enable JavaScript to run Electronics Mart IMS.</p>
+    </div>
+  </div>
+</noscript>
 `;
 
 export default function RootLayout({
@@ -175,6 +253,11 @@ export default function RootLayout({
         <meta name="theme-color" content="#0a1628" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        {/* Resource hints for faster API calls and asset loading */}
+        <link rel="preconnect" href="https://volterp-app.vercel.app" />
+        <link rel="dns-prefetch" href="https://volterp-app.vercel.app" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" crossOrigin="" />
+        <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground h-dvh overflow-hidden`}
@@ -194,7 +277,8 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              // Fallback: remove boot screen after 8s no matter what
+              // Fallback: remove boot screen after 30s no matter what
+              // (was 8s — too short for slow 3G connections in Bangladesh)
               setTimeout(function() {
                 var el = document.getElementById('boot-screen');
                 if (el) {
@@ -203,7 +287,7 @@ export default function RootLayout({
                     if (el && el.parentNode) el.parentNode.removeChild(el);
                   }, 300);
                 }
-              }, 8000);
+              }, 30000);
             `,
           }}
         />
