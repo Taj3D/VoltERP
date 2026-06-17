@@ -1120,3 +1120,67 @@ Stage Summary:
      (This migrates the existing base64 logo to Vercel Blob CDN)
   5. After migration, GET /api/company-branding returns logoUrl (CDN URL)
   6. Frontend loads logo directly from Vercel edge (~50ms globally)
+
+---
+Task ID: FIX-NOT-LOADING-2
+Agent: Main Agent (Request Deduplication + CSRF Fix)
+Task: User reported "সফটওয়্যারটি কোন ভাবেই লোড নিচ্ছে না" (software not loading at all). Diagnosed and fixed critical request thundering herd issue.
+
+Work Log:
+- Investigated with agent-browser on production (https://volterp-app.vercel.app):
+  - Site WAS returning HTTP 200, HTML arrived in 99ms
+  - BUT: /api/notifications was called 26+ times SIMULTANEOUSLY on dashboard load
+  - This saturated the browser's 6-connection-per-origin limit on slow connections
+  - Result: browser appeared frozen ("not loading") for users on slow/mobile networks
+  - Total API requests on dashboard load: 40+ (26 duplicate notification GETs + 9 dashboard-analytics + others)
+
+- Root cause analysis:
+  1. NO client-side in-flight request deduplication — 26 components calling the same GET URL fired 26 separate network requests
+  2. POST /api/notifications (generate) returned 403 — notifFetch didn't send CSRF token (CSRF_ENFORCE defaults to strict)
+  3. loadNotifications: if POST (generate) failed, the GET (list) never ran (sequential await + throw)
+  4. loadNotifications useCallback captured stale accessToken (not in dependency array)
+
+- Fix 1: Client-side in-flight request deduplication (src/lib/api-client.ts):
+  - Added `inFlightRequests` Map + `deduplicateInFlight()` helper (single-flight pattern)
+  - GET requests to the same URL share ONE network request — all callers get the same promise
+  - Wrapped entire `apiFetch` body in `deduplicateInFlight` for GET requests
+  - Exported `deduplicatedFetch()` public helper for external use
+  - Exported `getCsrfToken()` for AppHeader
+  - `clearAuthState()` now clears in-flight trackers on logout
+
+- Fix 2: AppHeader notifFetch rewrite (src/components/erp/layout/AppHeader.tsx):
+  - GET requests now use `deduplicatedFetch()` (26 requests → 1)
+  - POST/PUT/DELETE now send `X-CSRF-Token` header (fixes 403)
+  - `loadNotifications`: generate POST is now non-blocking (try/catch + suppress) — GET list always runs
+  - `accessToken` stored in `useRef` — callbacks always read current token, no stale closures
+  - All notification callbacks (markAsRead, markAllRead, dismiss) updated to use `accessTokenRef.current`
+
+- Committed (c131f6e) and pushed to GitHub
+- Vercel auto-deployed within ~90 seconds
+
+- Verified on PRODUCTION (https://volterp-app.vercel.app):
+  BEFORE vs AFTER comparison:
+  | Metric                          | Before                | After                 | Improvement     |
+  |--------------------------------|-----------------------|-----------------------|-----------------|
+  | Notification GET requests      | 26+ simultaneous      | 1 (deduplicated)      | 26x fewer       |
+  | Notification POST (generate)   | 403 (CSRF missing)    | 200 (CSRF working)    | Fixed           |
+  | Notification list loads?       | No (POST failure blocked GET) | Yes (non-blocking) | Fixed           |
+  | Notification bell shows count  | No (never loaded)     | Yes (shows "3")       | Fixed           |
+  | Total dashboard API requests   | 40+                   | 14                    | 65% fewer       |
+  | HTML TTFB                      | 25.7s (previous fix)  | 99ms                  | Maintained      |
+  | Console errors                 | Multiple (employee fetch, CSRF) | None        | Clean           |
+  | Login → Dashboard ready        | ~30s+ (frozen)        | ~4s                   | 7x faster       |
+
+Stage Summary:
+- ✅ Root cause identified: request thundering herd (26+ duplicate notification GETs) saturated browser connection pool
+- ✅ Client-side single-flight deduplication deployed (apiFetch + notifFetch)
+- ✅ CSRF token support added to notifFetch (POST 403 → 200)
+- ✅ Notification generate is now non-blocking (list always loads)
+- ✅ Stale accessToken issue fixed (ref pattern)
+- ✅ Production verified: 26x fewer notification requests, bell shows count, no console errors
+- ✅ Dashboard loads in ~4s (was 30s+ / appeared frozen)
+- 📋 RECOMMENDED NEXT STEPS:
+  1. Consider lazy-loading dashboard widgets (9 dashboard-analytics requests fire at once — stagger them)
+  2. React Strict Mode causes double-fetch in dev (not production) — can ignore
+  3. Bundle size still 913KB — consider code-splitting heavy modules
+  4. Set BLOB_READ_WRITE_TOKEN in Vercel for logo CDN migration (from previous BLOB-1 task)
