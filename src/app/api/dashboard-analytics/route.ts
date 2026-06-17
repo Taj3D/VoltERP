@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
 }
 
 // ─── KPI ─────────────────────────────────────────────────────────────────────
-async function handleKPI(
+export async function handleKPI(
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,
@@ -335,7 +335,7 @@ async function handleKPI(
 }
 
 // ─── Monthly Trend ───────────────────────────────────────────────────────────
-async function handleMonthlyTrend(
+export async function handleMonthlyTrend(
   searchParams: URLSearchParams,
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
@@ -442,7 +442,7 @@ async function handleMonthlyTrend(
 }
 
 // ─── Category Turnover ───────────────────────────────────────────────────────
-async function handleCategoryTurnover(
+export async function handleCategoryTurnover(
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,
@@ -533,7 +533,7 @@ async function handleCategoryTurnover(
 }
 
 // ─── Stock Alerts ────────────────────────────────────────────────────────────
-async function handleStockAlerts(companyFilter: Record<string, unknown>) {
+export async function handleStockAlerts(companyFilter: Record<string, unknown>) {
   // Get all products with their current stock info (companyId filtered)
   const products = await db.product.findMany({
     where: { isActive: true, ...companyFilter },
@@ -585,7 +585,7 @@ async function handleStockAlerts(companyFilter: Record<string, unknown>) {
 }
 
 // ─── Financial Ratios ────────────────────────────────────────────────────────
-async function handleFinancialRatios(
+export async function handleFinancialRatios(
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,
@@ -759,7 +759,7 @@ async function handleFinancialRatios(
 }
 
 // ─── Top Performers ──────────────────────────────────────────────────────────
-async function handleTopPerformers(
+export async function handleTopPerformers(
   searchParams: URLSearchParams,
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
@@ -899,7 +899,7 @@ async function handleTopPerformers(
 }
 
 // ─── Payment Mix ─────────────────────────────────────────────────────────────
-async function handlePaymentMix(
+export async function handlePaymentMix(
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,
@@ -953,7 +953,7 @@ async function handlePaymentMix(
 }
 
 // ─── Daily Sales Trend (last 30 days) ────────────────────────────────────────
-async function handleDailySalesTrend(
+export async function handleDailySalesTrend(
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,
@@ -1020,7 +1020,7 @@ async function handleDailySalesTrend(
 }
 
 // ─── Receivables Aging ───────────────────────────────────────────────────────
-async function handleReceivablesAging(
+export async function handleReceivablesAging(
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,

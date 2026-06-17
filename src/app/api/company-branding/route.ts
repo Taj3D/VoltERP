@@ -118,6 +118,13 @@ export async function GET(request: NextRequest) {
         website: company.website,
         blobConfigured: blobReady,
       },
+    }, {
+      headers: {
+        // Browser caches for 60s, stale-while-revalidate for 5min.
+        // Company branding rarely changes — this eliminates redundant calls
+        // during dashboard reloads and page navigation.
+        'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
+      },
     });
   } catch (error) {
     console.error('CompanyBranding GET error:', error);

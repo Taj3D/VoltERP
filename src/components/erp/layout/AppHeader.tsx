@@ -331,14 +331,42 @@ export default function AppHeader({
     }
   }, [user?.email, loadNotifications]);
 
-  // ── 30-second polling for live badge updates ──
+  // ── Smart polling for live badge updates ──
+  // Uses Page Visibility API to:
+  //  - Pause polling when tab is hidden (saves battery, bandwidth, DB load)
+  //  - Resume immediately when tab becomes visible again
+  //  - Poll every 30s when visible, every 2min when hidden (safety net)
   useEffect(() => {
     if (!user?.email) return;
-    pollRef.current = setInterval(() => {
-      loadNotifications(false); // Poll only, don't regenerate
-    }, 30000);
+
+    let intervalMs = 30000; // Default: 30s when visible
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (intervalId) clearInterval(intervalId);
+      intervalMs = document.hidden ? 120000 : 30000; // 2min when hidden, 30s when visible
+      intervalId = setInterval(() => {
+        loadNotifications(false); // Poll only, don't regenerate
+      }, intervalMs);
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Tab became visible again — immediately refresh + restart fast polling
+        loadNotifications(false);
+        startPolling();
+      } else {
+        // Tab hidden — restart with slower interval
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (intervalId) clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user?.email, loadNotifications]);
 

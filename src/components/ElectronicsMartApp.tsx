@@ -55,6 +55,7 @@ import { useTheme } from "next-themes";
 import ErrorBoundary from "@/components/erp/ui/ErrorBoundary";
 import ModuleErrorBoundary from "@/components/ModuleErrorBoundary";
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
+import { prefetchPage } from "@/lib/page-prefetch";
 
 // ─── Lazy-loaded page components for performance ───
 // Heavy components are loaded on-demand when the user navigates to them,
@@ -2997,6 +2998,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
                             <button
                               key={item.key}
                               onClick={() => onNavigate(item.key)}
+                              onMouseEnter={() => prefetchPage(item.key)}
                               className={`w-full flex items-center gap-2 pl-8 pr-3 py-1.5 rounded text-xs transition-colors hover:bg-white/10 hover:text-white ${currentPage === item.key ? "bg-blue-500/20 text-blue-300 sidebar-item-active" : "text-slate-400"}`}
                             >
                               {item.label}
@@ -3009,6 +3011,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
                       <button
                         key={item.key}
                         onClick={() => onNavigate(item.key)}
+                        onMouseEnter={() => prefetchPage(item.key)}
                         className={`w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors hover:bg-white/10 hover:text-white ${currentPage === item.key ? "bg-blue-500/20 text-blue-300 sidebar-item-active" : "text-slate-400"}`}
                       >
                         {item.icon && <item.icon className="w-3.5 h-3.5" />}
