@@ -2445,3 +2445,54 @@ Files Modified (4):
 - prisma/schema.prisma (FeatureFlag + SchemaMigration models + Company.featureFlags relation)
 - src/components/erp/layout/AppHeader.tsx (VersionBadge import + render)
 - src/components/SystemSettingsGroupPage.tsx (Feature Flags tab + Flag icon import)
+
+---
+Task ID: GITHUB-VERCEL-UPLOAD-001
+Agent: Main Agent
+Task: Upload all v3.0.0 updates to GitHub and Vercel
+
+Work Log:
+- Checked git remote: origin → https://github.com/Taj3D/VoltERP.git
+- Found 5 unpushed commits on main branch:
+  1. 506fad7 - latest commit
+  2. 1948bb1 - feat(v3.0): feature flag UI + version badge + system info API
+  3. 0fc21a3 - feat(v3.0): versioning system - feature flags + migration tracking + release branches
+  4. 42cf79d - (previous)
+  5. c08d02b - (previous)
+- Pushed main branch to GitHub: `git push origin main` → SUCCESS (1302261..506fad7)
+- Pushed v2.0.0 tag to GitHub: SUCCESS (new tag)
+- Pushed v3.0.0 tag to GitHub: SUCCESS (new tag)
+- Pushed release/v3.0 branch to GitHub: SUCCESS (new branch)
+- Checked Vercel CLI: available via npx (v54.14.0)
+- Checked Vercel login: no credentials found (no token in env)
+- Verified GitHub remote state:
+  * main: 506fad7 ✅
+  * v2.0.0 tag: b5b4679 ✅
+  * v3.0.0 tag: 829187e ✅
+  * release/v3.0 branch: 0fc21a3 ✅
+
+GitHub Repository: https://github.com/Taj3D/VoltERP
+Vercel App: https://volterp-app.vercel.app (connected via GitHub integration)
+
+Stage Summary:
+- ✅ All v3.0.0 code pushed to GitHub (main + tags + release branch)
+- ✅ Vercel will auto-deploy from GitHub integration (standard Vercel workflow)
+- ℹ️ No Vercel CLI token available — Vercel deployment triggered automatically via GitHub push
+- ℹ️ User can monitor deployment at https://vercel.com/dashboard → VoltERP project → Deployments
+
+Note on Vercel Deployment:
+The project https://volterp-app.vercel.app is connected to the GitHub repo via Vercel's
+Git Integration. When code is pushed to the main branch, Vercel automatically:
+  1. Detects the push via webhook
+  2. Starts a new production deployment
+  3. Runs `npx prisma generate && next build`
+  4. Deploys to production once build succeeds
+The deployment typically takes 2-5 minutes. User can check status at:
+  https://vercel.com/dashboard → select VoltERP → Deployments tab
+
+Important for Vercel production deployment:
+- DATABASE_URL must be set in Vercel env vars (Turso libsql:// URL)
+- DATABASE_AUTH_TOKEN must be set (Turso auth token)
+- JWT_SECRET must be set
+- BLOB_READ_WRITE_TOKEN must be set (for photo upload feature, pending)
+- CSRF_ENFORCE should be "false" (transitional mode, same as dev)
