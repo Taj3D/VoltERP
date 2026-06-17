@@ -95,3 +95,20 @@ prisma/db/*.db-wal
 prisma/db/custom.db
 prisma/db/*.db-shm
 prisma/db/*.db-wal
+
+# QA test artifacts (do not commit)
+/tool-results/
+/audit-screenshots/
+/audit-*.png
+/perf-*.png
+/api-*.png
+/app-*.png
+/balance-sheet-*.png
+/workflow-test-*.pdf
+/product-master-list.pdf
+/test-pdf-with-logo.pdf
+/test_module.sh
+/upload/*.pdf
+/upload/*.png
+/upload/*.jpeg
+/upload/*.jpg
